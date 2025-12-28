@@ -1,17 +1,22 @@
+// src/routes/compra.router.js
 import { Router } from "express";
 import {
   crearCompra,
   listarCompras,
   obtenerCompraPorId,
-  obtenerDetalleCompra, // ✅ Asegúrate de importar esta función
+  obtenerDetalleCompra,
+  eliminarCompra,
+  actualizarCompra,
 } from "../controllers/compra.controller.js";
 
 const router = Router();
 
+// ================== RUTAS ==================
+
 // LISTAR TODAS LAS COMPRAS
 router.get("/", listarCompras);
 
-// OBTENER UNA COMPRA POR ID (sin detalle, opcional)
+// OBTENER UNA COMPRA POR ID (sin detalle)
 router.get("/:id", obtenerCompraPorId);
 
 // CREAR COMPRA
@@ -20,10 +25,12 @@ router.post("/", crearCompra);
 // OBTENER DETALLE DE UNA COMPRA
 router.get("/:id/detalle", obtenerDetalleCompra);
 
-// (Opcional) actualizar compra — aún no lo creamos
-// router.put("/:id", updateCompra);
+// EDITAR COMPRA
+router.put("/:id", actualizarCompra);
 
-// (Opcional) eliminar compra — si lo quieres lo agrego
-// router.delete("/:id", deleteCompra);
+// ELIMINAR COMPRA
+router.delete("/:id", eliminarCompra);
+
+
 
 export default router;
