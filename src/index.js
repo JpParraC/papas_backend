@@ -19,6 +19,8 @@ import compraRoutes from "./routes/compra.routes.js";
 import detcompRoutes from "./routes/detcomp.routes.js";
 import ventaRoutes from "./routes/venta.routes.js";
 import detventRoutes from "./routes/detvent.routes.js";
+import personalRoutes from './routes/personal.router.js'
+
 
 dotenv.config();
 
@@ -49,6 +51,7 @@ app.use("/api/inventario", inventarioRoutes);
 app.use("/api/proveedores", proveedorRoutes);
 app.use("/api/productos", productoRoutes);
 app.use("/api/clientes", clienteRoutes);
+app.use('/api/personal', personalRoutes)
 
 // Health check
 app.get('/health', (req, res) => res.json({ ok: true }));
