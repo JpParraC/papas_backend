@@ -20,6 +20,7 @@ import detcompRoutes from "./routes/detcomp.routes.js";
 import ventaRoutes from "./routes/venta.routes.js";
 import detventRoutes from "./routes/detvent.routes.js";
 import personalRoutes from './routes/personal.router.js'
+const cargosRouter = require('./routes/cargos.router')
 
 
 dotenv.config();
@@ -52,6 +53,8 @@ app.use("/api/proveedores", proveedorRoutes);
 app.use("/api/productos", productoRoutes);
 app.use("/api/clientes", clienteRoutes);
 app.use('/api/personal', personalRoutes)
+
+app.use('/api/cargos', cargosRouter)
 
 // Health check
 app.get('/health', (req, res) => res.json({ ok: true }));
