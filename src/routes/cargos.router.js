@@ -1,9 +1,16 @@
-// routes/cargos.router.js
-const express = require('express')
-const router = express.Router()
-const { getCargos } = require('../controllers/cargos.controller')
+import { Router } from 'express'
+import {
+  getCargos,
+  createCargo,
+  updateCargo,
+  deleteCargo
+} from '../controllers/cargos.controller.js'
 
-// GET /api/cargos -> devuelve todos los cargos
+const router = Router()
+
 router.get('/', getCargos)
+router.post('/', createCargo)
+router.put('/:id', updateCargo)
+router.delete('/:id', deleteCargo)
 
-module.exports = router
+export default router
