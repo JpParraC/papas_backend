@@ -1,23 +1,25 @@
-// controllers/cargos.controller.js
-import db from "../db/index.js"; // o tu conexión a la DB
+import db from "../db/index.js"
+
+// extraemos el pool correctamente
+const { pool, SCHEMA_PREFIX } = db
 
 // ====================
 // Obtener todos los cargos
 // ====================
-const getCargos = async (req, res) => {
+export async function getCargos(req, res) {
   try {
     const result = await pool.query(
-      `SELECT id, nombre_cargo, descripcion, nivel, salario_base 
-       FROM cargos
+      `SELECT id, nombre_cargo, descripcion, nivel, salario_base
+       FROM ${SCHEMA_PREFIX}cargos
        ORDER BY nombre_cargo ASC`
     )
+
     res.json(result.rows)
   } catch (error) {
     console.error('Error al obtener cargos:', error)
-    res.status(500).json({ message: 'Error al obtener cargos' })
+    res.status(500).json({
+      message: 'Error al obtener cargos',
+      error: error.message
+    })
   }
-}
-
-module.exports = {
-  getCargos,
 }

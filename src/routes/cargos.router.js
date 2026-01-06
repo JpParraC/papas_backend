@@ -1,9 +1,8 @@
-// routes/cargos.router.js
-const express = require('express')
-const router = express.Router()
-const { getCargos } = require('../controllers/cargos.controller')
+import { Router } from "express";
+import { getCargos } from "../controllers/cargos.controller.js";
 
-// GET /api/cargos -> devuelve todos los cargos
-router.get('/', getCargos)
+const router = Router();
 
-module.exports = router
+router.get('/', getCargos);
+
+export default router;
