@@ -95,3 +95,25 @@ export async function deleteCliente(req, res) {
     res.status(500).json({ error: "Error eliminando cliente" });
   }
 }
+
+ 
+export async function getClienteByCedula(req, res) {
+  try {
+    const { cedula } = req.params;
+    const query = `
+      SELECT *
+      FROM BDTMA_CLIENTE
+      WHERE TMA_CEDULA = $1
+    `;
+    const { rows } = await db.query(query, [cedula]);
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Cliente no encontrado" });
+    }
+
+    res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Error buscando cliente por cédula" });
+  }
+}

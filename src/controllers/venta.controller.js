@@ -1,80 +1,176 @@
 import db from "../db/index.js";
 
-// Obtener todas las ventas con cliente
+/* ===========================
+   OBTENER TODAS LAS VENTAS
+=========================== */
 export async function getVentas(req, res) {
   try {
     const query = `
-      SELECT v.TB_IDVENTA, v.TB_IDCLIEN, c.TMA_NOMBREC AS cliente,
-             v.TB_FECHVENT, v.TB_TOTALVEN, v.TB_ESTADVEN
-      FROM TB_VENTAS v
-      JOIN BDTMA_CLIENTE c ON v.TB_IDCLIEN = c.TMA_IDCLIEN
-      ORDER BY v.TB_IDVENTA ASC
+      SELECT v.tb_idventa,
+             v.tb_idclien,
+             c.tma_nombrec AS cliente,
+             v.tb_fechvent,
+             v.tb_totalven,
+             v.tb_estadven
+      FROM tb_ventas v
+      JOIN bdtma_cliente c ON v.tb_idclien = c.tma_idclien
+      ORDER BY v.tb_idventa ASC;
     `;
     const { rows } = await db.query(query);
     res.json(rows);
-  } catch (err) {
+  } catch (error) {
     res.status(500).json({ error: "Error obteniendo ventas" });
   }
 }
 
-// Crear venta
-export async function createVenta(req, res) {
+/* ===========================
+   OBTENER VENTA CON DETALLES
+=========================== */
+export async function getVentaById(req, res) {
   try {
-    const { idCliente, total, estado } = req.body;
+    const { id } = req.params;
 
-    const query = `
-      INSERT INTO TB_VENTAS
-      (TB_IDCLIEN, TB_FECHVENT, TB_TOTALVEN, TB_ESTADVEN)
-      VALUES ($1, NOW(), $2, $3)
-      RETURNING *;
+    const ventaQuery = `
+      SELECT * FROM tb_ventas WHERE tb_idventa = $1
+    `;
+    const detalleQuery = `
+      SELECT * FROM tb_detvent WHERE tb_idventa = $1
     `;
 
-    const values = [idCliente, total, estado];
-    const { rows } = await db.query(query, values);
+    const venta = await db.query(ventaQuery, [id]);
+    const detalles = await db.query(detalleQuery, [id]);
 
-    res.json(rows[0]);
-  } catch (err) {
-    res.status(500).json({ error: "Error creando venta" });
+    if (venta.rows.length === 0) {
+      return res.status(404).json({ error: "Venta no encontrada" });
+    }
+
+    res.json({
+      ...venta.rows[0],
+      detalles: detalles.rows
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Error obteniendo venta" });
   }
 }
 
-// Actualizar venta
+/* ===========================
+   CREAR VENTA + DETALLES
+=========================== */
+export async function createVenta(req, res) {
+  const client = await db.connect();
+
+  try {
+    const { idCliente, estado, detalles } = req.body;
+
+    await client.query("BEGIN");
+
+    let total = 0;
+    detalles.forEach(d => {
+      total += d.cantidad * d.precio;
+    });
+
+    const ventaQuery = `
+      INSERT INTO tb_ventas
+      (tb_idclien, tb_fechvent, tb_totalven, tb_estadven)
+      VALUES ($1, NOW(), $2, $3)
+      RETURNING tb_idventa;
+    `;
+
+    const ventaResult = await client.query(ventaQuery, [
+      idCliente,
+      total,
+      estado
+    ]);
+
+    const idVenta = ventaResult.rows[0].tb_idventa;
+
+    const detalleQuery = `
+      INSERT INTO tb_detvent
+      (tb_idventa, tb_idprodu, tb_cantida, tb_precuni, tb_subtota)
+      VALUES ($1, $2, $3, $4, $5);
+    `;
+
+    for (const d of detalles) {
+      const subtotal = d.cantidad * d.precio;
+      await client.query(detalleQuery, [
+        idVenta,
+        d.idProducto,
+        d.cantidad,
+        d.precio,
+        subtotal
+      ]);
+    }
+
+    await client.query("COMMIT");
+
+    res.status(201).json({
+      message: "Venta creada correctamente",
+      idVenta
+    });
+
+  } catch (error) {
+    await client.query("ROLLBACK");
+    res.status(500).json({ error: "Error creando venta" });
+  } finally {
+    client.release();
+  }
+}
+
+/* ===========================
+   ACTUALIZAR ESTADO DE VENTA
+=========================== */
 export async function updateVenta(req, res) {
   try {
     const { id } = req.params;
-    const { idCliente, total, estado } = req.body;
+    const { estado } = req.body;
 
     const query = `
-      UPDATE TB_VENTAS
-      SET TB_IDCLIEN = $1,
-          TB_TOTALVEN = $2,
-          TB_ESTADVEN = $3
-      WHERE TB_IDVENTA = $4
+      UPDATE tb_ventas
+      SET tb_estadven = $1
+      WHERE tb_idventa = $2
       RETURNING *;
     `;
 
-    const values = [idCliente, total, estado, id];
-    const { rows } = await db.query(query, values);
+    const { rows } = await db.query(query, [estado, id]);
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Venta no encontrada" });
+    }
 
     res.json(rows[0]);
-  } catch (err) {
+  } catch (error) {
     res.status(500).json({ error: "Error actualizando venta" });
   }
 }
 
-// Eliminar venta
+/* ===========================
+   ELIMINAR VENTA
+=========================== */
 export async function deleteVenta(req, res) {
+  const client = await db.connect();
+
   try {
     const { id } = req.params;
 
-    // Primero eliminar detalles de venta
-    await db.query(`DELETE FROM TB_DETVENT WHERE TB_IDVENTA = $1`, [id]);
+    await client.query("BEGIN");
 
-    // Luego eliminar la venta
-    await db.query(`DELETE FROM TB_VENTAS WHERE TB_IDVENTA = $1`, [id]);
+    await client.query(
+      "DELETE FROM tb_detvent WHERE tb_idventa = $1",
+      [id]
+    );
+
+    await client.query(
+      "DELETE FROM tb_ventas WHERE tb_idventa = $1",
+      [id]
+    );
+
+    await client.query("COMMIT");
 
     res.json({ message: "Venta eliminada correctamente" });
-  } catch (err) {
+  } catch (error) {
+    await client.query("ROLLBACK");
     res.status(500).json({ error: "Error eliminando venta" });
+  } finally {
+    client.release();
   }
 }
