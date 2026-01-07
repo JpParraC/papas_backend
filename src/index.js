@@ -15,7 +15,6 @@ import proveedorRoutes from "./routes/proveedor.routes.js";
 import inventarioRoutes from "./routes/inventario.routes.js";
 import compraRoutes from "./routes/compra.routes.js";
 import detcompRoutes from "./routes/detcomp.routes.js";
-import detventRoutes from "./routes/detvent.routes.js";
 import personalRoutes from './routes/personal.router.js';
 import cargosRoutes from './routes/cargos.router.js';
 import produccionRouter from "./routes/produccion.router.js";
@@ -35,8 +34,6 @@ app.use('/api/cultivos', cultivosRoutes);
 app.use('/api/cosechas', cosechasRoutes);
 app.use('/api/ventas', ventasRoutes);
 app.use('/api/pagos', pagosRoutes);
-
-app.use("/api/detventas", detventRoutes);
 app.use("/api/detcompras", detcompRoutes);
 app.use("/api/compras", compraRoutes);
 app.use("/api/inventario", inventarioRoutes);

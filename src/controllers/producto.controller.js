@@ -74,3 +74,25 @@
       res.status(500).json({ error: "Error eliminando producto" });
     }
   }
+
+  // Obtener solo productos de cosecha
+export async function getProductosCosecha(req, res) {
+  try {
+    const query = `
+      SELECT 
+        TMA_IDPRODU   AS id,
+        TMA_NOMBREP   AS nombre,
+        TMA_PRECIOU   AS precio,
+        TMA_TIPO      AS tipo
+      FROM BDTMA_PRODUC
+      WHERE UPPER(TMA_TIPO) = 'COSECHA'
+      ORDER BY TMA_NOMBREP ASC
+    `
+
+    const { rows } = await db.query(query)
+    res.json(rows)
+  } catch (err) {
+    res.status(500).json({ error: "Error obteniendo productos de cosecha" })
+  }
+}
+  
