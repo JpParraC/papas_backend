@@ -16,6 +16,7 @@ export async function getDetVentas(req, res) {
     const { rows } = await db.query(query, [ventaId]);
     res.json(rows);
   } catch (err) {
+    console.error("ERROR getDetVentas:", err);
     res.status(500).json({ error: "Error obteniendo detalles de venta" });
   }
 }
@@ -24,7 +25,14 @@ export async function getDetVentas(req, res) {
 export async function createDetVenta(req, res) {
   try {
     const { idVenta, idProducto, cantidad, precioUnitario } = req.body;
-    const subtotal = cantidad * precioUnitario;
+
+    if (!idVenta || !idProducto || cantidad == null || precioUnitario == null) {
+      return res.status(400).json({ error: "Faltan datos para crear detalle de venta" });
+    }
+
+    const cantidadNum = Number(cantidad) || 0;
+    const precioNum = Number(precioUnitario) || 0;
+    const subtotal = cantidadNum * precioNum;
 
     const query = `
       INSERT INTO TB_DETVENT
@@ -33,11 +41,10 @@ export async function createDetVenta(req, res) {
       RETURNING *;
     `;
 
-    const values = [idVenta, idProducto, cantidad, precioUnitario, subtotal];
-    const { rows } = await db.query(query, values);
-
+    const { rows } = await db.query(query, [idVenta, idProducto, cantidadNum, precioNum, subtotal]);
     res.json(rows[0]);
   } catch (err) {
+    console.error("ERROR createDetVenta:", err);
     res.status(500).json({ error: "Error creando detalle de venta" });
   }
 }
@@ -47,7 +54,14 @@ export async function updateDetVenta(req, res) {
   try {
     const { id } = req.params;
     const { cantidad, precioUnitario } = req.body;
-    const subtotal = cantidad * precioUnitario;
+
+    if (cantidad == null || precioUnitario == null) {
+      return res.status(400).json({ error: "Faltan datos para actualizar detalle" });
+    }
+
+    const cantidadNum = Number(cantidad) || 0;
+    const precioNum = Number(precioUnitario) || 0;
+    const subtotal = cantidadNum * precioNum;
 
     const query = `
       UPDATE TB_DETVENT
@@ -58,11 +72,12 @@ export async function updateDetVenta(req, res) {
       RETURNING *;
     `;
 
-    const values = [cantidad, precioUnitario, subtotal, id];
-    const { rows } = await db.query(query, values);
+    const { rows } = await db.query(query, [cantidadNum, precioNum, subtotal, id]);
+    if (!rows.length) return res.status(404).json({ error: "Detalle no encontrado" });
 
     res.json(rows[0]);
   } catch (err) {
+    console.error("ERROR updateDetVenta:", err);
     res.status(500).json({ error: "Error actualizando detalle de venta" });
   }
 }
@@ -72,13 +87,12 @@ export async function deleteDetVenta(req, res) {
   try {
     const { id } = req.params;
 
-    await db.query(
-      `DELETE FROM TB_DETVENT WHERE TB_IDDETVE = $1`,
-      [id]
-    );
+    const result = await db.query(`DELETE FROM TB_DETVENT WHERE TB_IDDETVE = $1 RETURNING *`, [id]);
+    if (!result.rows.length) return res.status(404).json({ error: "Detalle no encontrado" });
 
     res.json({ message: "Detalle de venta eliminado" });
   } catch (err) {
+    console.error("ERROR deleteDetVenta:", err);
     res.status(500).json({ error: "Error eliminando detalle de venta" });
   }
 }
