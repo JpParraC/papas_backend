@@ -18,16 +18,16 @@ export async function getClientes(req, res) {
 // Crear cliente
 export async function createCliente(req, res) {
   try {
-    const { nombre, direccion, telefono, email } = req.body;
+    const { cedula, nombre, direccion, telefono, email } = req.body;
 
     const query = `
       INSERT INTO BDTMA_CLIENTE 
-      (TMA_NOMBREC, TMA_DIRECCI, TMA_TELEFON, TMA_EMAILCL, TMA_FECHREG)
-      VALUES ($1, $2, $3, $4, NOW())
+      (TMA_CEDULA, TMA_NOMBREC, TMA_DIRECCI, TMA_TELEFON, TMA_EMAILCL, TMA_FECHREG)
+      VALUES ($1, $2, $3, $4, $5, NOW())
       RETURNING *;
     `;
 
-    const values = [nombre, direccion, telefono, email];
+    const values = [cedula, nombre, direccion, telefono, email];
     const { rows } = await db.query(query, values);
 
     res.json(rows[0]);
@@ -46,19 +46,20 @@ export async function updateCliente(req, res) {
       return res.status(400).json({ error: "ID inválido" });
     }
 
-    const { nombre, direccion, telefono, email } = req.body;
+    const { cedula, nombre, direccion, telefono, email } = req.body;
 
     const query = `
       UPDATE BDTMA_CLIENTE
-      SET TMA_NOMBREC = $1,
-          TMA_DIRECCI = $2,
-          TMA_TELEFON = $3,
-          TMA_EMAILCL = $4
-      WHERE TMA_IDCLIEN = $5
+      SET TMA_CEDULA = $1,
+          TMA_NOMBREC = $2,
+          TMA_DIRECCI = $3,
+          TMA_TELEFON = $4,
+          TMA_EMAILCL = $5
+      WHERE TMA_IDCLIEN = $6  
       RETURNING *;
     `;
 
-    const values = [nombre, direccion, telefono, email, idCliente];
+    const values = [cedula, nombre, direccion, telefono, email, idCliente];
     const { rows } = await db.query(query, values);
 
     if (rows.length === 0) {

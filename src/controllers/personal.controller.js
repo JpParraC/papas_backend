@@ -30,10 +30,11 @@ export const createPersonal = async (req, res) => {
       tma_estadpe
     } = req.body;
 
-    // VALIDACIÓN BÁSICA
     if (!tma_nombrep || !tma_cargope || !tma_fechcon) {
       return res.status(400).json({ message: 'Campos obligatorios faltantes' });
     }
+
+    const salarioFinal = Number(tma_salario) || 0;
 
     const { rows } = await db.pool.query(
       `INSERT INTO bdtma_personal
@@ -44,7 +45,7 @@ export const createPersonal = async (req, res) => {
         tma_nombrep,
         tma_cargope,
         tma_fechcon,
-        tma_salario || 0,
+        salarioFinal,
         tma_telefon || '',
         tma_emailpe || '',
         tma_estadpe || 'Activo'
@@ -63,7 +64,7 @@ export const createPersonal = async (req, res) => {
 // ============================
 export const updatePersonal = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { id } = req.params
     const {
       tma_nombrep,
       tma_cargope,
@@ -72,23 +73,22 @@ export const updatePersonal = async (req, res) => {
       tma_telefon,
       tma_emailpe,
       tma_estadpe
-    } = req.body;
+    } = req.body
 
-    // VALIDACIÓN BÁSICA
     if (!tma_nombrep || !tma_cargope || !tma_fechcon) {
-      return res.status(400).json({ message: 'Campos obligatorios faltantes' });
+      return res.status(400).json({ message: 'Campos obligatorios faltantes' })
     }
 
     const { rows, rowCount } = await db.pool.query(
       `UPDATE bdtma_personal SET
-         tma_nombrep = $1,
-         tma_cargope = $2,
-         tma_fechcon = $3,
-         tma_salario = $4,
-         tma_telefon = $5,
-         tma_emailpe = $6,
-         tma_estadpe = $7
-       WHERE id = $8
+        tma_nombrep = $1,
+        tma_cargope = $2,
+        tma_fechcon = $3,
+        tma_salario = $4,
+        tma_telefon = $5,
+        tma_emailpe = $6,
+        tma_estadpe = $7
+       WHERE tma_idperso = $8
        RETURNING *`,
       [
         tma_nombrep,
@@ -100,18 +100,19 @@ export const updatePersonal = async (req, res) => {
         tma_estadpe || 'Activo',
         id
       ]
-    );
+    )
 
     if (rowCount === 0) {
-      return res.status(404).json({ message: 'Empleado no encontrado' });
+      return res.status(404).json({ message: 'Empleado no encontrado' })
     }
 
-    res.status(200).json(rows[0]);
+    res.status(200).json(rows[0])
   } catch (error) {
-    console.error('updatePersonal:', error);
-    res.status(500).json({ message: 'Error al actualizar personal' });
+    console.error('updatePersonal:', error)
+    res.status(500).json({ message: 'Error al actualizar personal' })
   }
-};
+}
+
 
 // ============================
 // ELIMINAR PERSONAL
@@ -121,7 +122,7 @@ export const deletePersonal = async (req, res) => {
     const { id } = req.params;
 
     const { rowCount } = await db.pool.query(
-      'DELETE FROM bdtma_personal WHERE id = $1',
+      'DELETE FROM bdtma_personal WHERE tma_idperso = $1',
       [id]
     );
 

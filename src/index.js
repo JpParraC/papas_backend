@@ -17,7 +17,10 @@ import compraRoutes from "./routes/compra.routes.js";
 import detcompRoutes from "./routes/detcomp.routes.js";
 import personalRoutes from './routes/personal.router.js';
 import cargosRoutes from './routes/cargos.router.js';
-import produccionRouter from "./routes/produccion.router.js";
+import produccRoutes from "./routes/producc.routes.js";
+import reportesRoutes from "./routes/reportes.routes.js";
+
+
 
 
 dotenv.config();
@@ -42,7 +45,8 @@ app.use("/api/productos", productoRoutes);
 app.use("/api/clientes", clienteRoutes);
 app.use('/api/personal', personalRoutes);
 app.use('/api/cargos', cargosRoutes);
-app.use("/api/producc", produccionRouter);
+app.use("/api", produccRoutes);
+app.use("/api/reportes", reportesRoutes);
 
 app.get('/health', (req, res) => res.json({ ok: true }));
 
