@@ -1,5 +1,6 @@
 // src/routes/compra.router.js
 import { Router } from "express";
+import { imprimirFacturaCompra } from "../controllers/compra.controller.js";
 import {
   crearCompra,
   listarCompras,
@@ -31,6 +32,8 @@ router.put("/:id", actualizarCompra);
 // ELIMINAR COMPRA
 router.delete("/:id", eliminarCompra);
 
+router.get("/:id/factura", imprimirFacturaCompra);
+router.get("/:id/pdf", imprimirFacturaCompra);
 
 
 export default router;

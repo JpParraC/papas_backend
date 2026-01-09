@@ -1,6 +1,7 @@
 // src/controllers/comprasController.js
 import db from "../db/index.js";
 const T = db.SCHEMA_PREFIX || "";
+import PDFDocument from "pdfkit";
 
 // -----------------------------------------------------------
 // CREAR COMPRA
@@ -159,12 +160,17 @@ export const listarCompras = async (req, res) => {
 };
 
 // -----------------------------------------------------------
-// OBTENER COMPRA POR ID
+// OBTENER COMPRA POR ID (con nombre de proveedor)
 // -----------------------------------------------------------
 export const obtenerCompraPorId = async (req, res) => {
   try {
     const { id } = req.params;
-    const query = `SELECT * FROM ${T}tb_compras WHERE tb_idcompra = $1`;
+    const query = `
+      SELECT c.*, p.tma_nombre AS proveedor
+      FROM ${T}tb_compras c
+      JOIN ${T}bdtma_proveed p ON c.tb_idproveed = p.tma_idprove
+      WHERE c.tb_idcompra = $1
+    `;
     const result = await db.query(query, [id]);
     if (!result.rows.length) return res.status(404).json({ message: "Compra no encontrada" });
     res.json(result.rows[0]);
@@ -196,5 +202,93 @@ export const eliminarCompra = async (req, res) => {
     res.status(500).json({ message: "Error en servidor", error });
   } finally {
     client.release();
+  }
+};
+
+// -----------------------------------------------------------
+// IMPRIMIR FACTURA DE COMPRA (PDF)
+// -----------------------------------------------------------
+export const imprimirFacturaCompra = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Obtener compra con nombre de proveedor
+    const compraQuery = `
+      SELECT c.*, p.tma_nombrep AS proveedor
+      FROM ${T}tb_compras c
+      JOIN ${T}bdtma_proveed p ON c.tb_idproveed = p.tma_idprove
+      WHERE c.tb_idcompra = $1
+    `;
+    const compraResult = await db.query(compraQuery, [id]);
+    if (!compraResult.rows.length) return res.status(404).json({ message: "Compra no encontrada" });
+    const compra = compraResult.rows[0];
+
+    // Obtener detalles
+    const detalleQuery = `
+      SELECT d.*, pr.tma_nombrep AS nombre_producto, pr.tma_unidade AS unidad
+      FROM ${T}tb_detcomp d
+      JOIN ${T}bdtma_produc pr ON d.tb_idprodu = pr.tma_idprodu
+      WHERE d.tb_idcompr = $1
+      ORDER BY d.tb_iddetco
+    `;
+    const detalleResult = await db.query(detalleQuery, [id]);
+    const detalles = detalleResult.rows;
+
+    // Crear PDF
+    const doc = new PDFDocument({ margin: 40 });
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename=factura_compra_${compra.tb_idcompra}.pdf`);
+    doc.pipe(res);
+
+    // ====== ENCABEZADO ======
+    doc
+      .fontSize(18)
+      .text("FACTURA DE COMPRA", { align: "center" })
+      .moveDown();
+    doc.fontSize(12);
+    doc.text(`Compra Nº: ${compra.tb_idcompra}`, { align: "left" });
+    doc.text(`Fecha: ${new Date(compra.tb_fechcomp).toLocaleDateString('es-ES')}`, { align: "left" });
+    doc.text(`Proveedor: ${compra.proveedor}`, { align: "left" });
+    doc.text(`Estado: ${compra.tb_estadcom}`, { align: "left" });
+    doc.moveDown();
+
+    // ====== TABLA DETALLES ======
+    doc.fontSize(11).text("Detalle de productos", { underline: true });
+    doc.moveDown(0.5);
+
+    const tableTop = doc.y;
+    const col = { producto: 40, cantidad: 300, precio: 380, subtotal: 460 };
+
+    doc.font("Helvetica-Bold");
+    doc.text("Producto", col.producto, tableTop);
+    doc.text("Cant.", col.cantidad, tableTop);
+    doc.text("Precio", col.precio, tableTop);
+    doc.text("Subtotal", col.subtotal, tableTop);
+    doc.moveDown(0.5);
+    doc.font("Helvetica");
+
+    let total = 0;
+    detalles.forEach(d => {
+      const y = doc.y;
+      doc.text(d.nombre_producto, col.producto, y);
+      doc.text(`${d.tb_cantidad} ${d.unidad}`, col.cantidad, y);
+      doc.text(`$${Number(d.tb_precunic).toFixed(2)}`, col.precio, y);
+      doc.text(`$${Number(d.tb_subtotal).toFixed(2)}`, col.subtotal, y);
+      total += Number(d.tb_subtotal);
+      doc.moveDown(0.5);
+    });
+
+    doc.moveDown();
+    doc.font("Helvetica-Bold").text(`TOTAL: $${total.toFixed(2)}`, { align: "right" });
+
+    // ====== PIE ======
+    doc.moveDown(2);
+    doc.fontSize(9).text("Gracias por su compra", { align: "center" });
+
+    doc.end();
+  } catch (error) {
+    console.error("ERROR PDF COMPRA:", error);
+    res.status(500).json({ message: "Error generando factura PDF", error });
   }
 };
