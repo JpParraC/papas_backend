@@ -1,5 +1,6 @@
 // src/controllers/venta.controller.js
 import db from "../db/index.js";
+import PDFDocument from "pdfkit";
 
 /* ===========================
    OBTENER TODAS LAS VENTAS
@@ -190,6 +191,107 @@ export async function updateVenta(req, res) {
   }
 }
 
+/* ===========================
+   FACTURA PDF
+=========================== */
+export async function printFacturaPDF(req, res) {
+  try {
+    const { id } = req.params;
+
+    const ventaQuery = `
+      SELECT v.*, c.tma_nombrec AS cliente
+      FROM tb_ventas v
+      JOIN bdtma_cliente c ON v.tb_idclien = c.tma_idclien
+      WHERE v.tb_idventa = $1
+    `;
+
+    const detalleQuery = `
+      SELECT d.*, p.tma_nombrep AS nombre_producto
+      FROM tb_detvent d
+      JOIN bdtma_produc p ON d.tb_idprodu = p.tma_idprodu
+      WHERE d.tb_idventa = $1
+    `;
+
+    const ventaResult = await db.query(ventaQuery, [id]);
+    if (!ventaResult.rows.length) {
+      return res.status(404).json({ error: "Venta no encontrada" });
+    }
+
+    const detallesResult = await db.query(detalleQuery, [id]);
+
+    const venta = ventaResult.rows[0];
+    const detalles = detallesResult.rows;
+
+    const doc = new PDFDocument({ margin: 40 });
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename=factura_${venta.tb_idventa}.pdf`
+    );
+
+    doc.pipe(res);
+
+    /* ====== ENCABEZADO ====== */
+    doc
+      .fontSize(18)
+      .text("FACTURA", { align: "center" })
+      .moveDown();
+
+    doc.fontSize(10);
+    doc.text(`Factura Nº: ${venta.tb_idventa}`);
+    doc.text(`Fecha: ${venta.tb_fechvent}`);
+    doc.text(`Cliente: ${venta.cliente}`);
+    doc.text(`Estado: ${venta.tb_estadven}`);
+    doc.moveDown();
+
+    /* ====== TABLA ====== */
+    doc.fontSize(11).text("Detalle de productos", { underline: true });
+    doc.moveDown(0.5);
+
+    const tableTop = doc.y;
+    const col = {
+      producto: 40,
+      cantidad: 250,
+      precio: 320,
+      subtotal: 400,
+    };
+
+    doc.font("Helvetica-Bold");
+    doc.text("Producto", col.producto, tableTop);
+    doc.text("Cant.", col.cantidad, tableTop);
+    doc.text("Precio", col.precio, tableTop);
+    doc.text("Subtotal", col.subtotal, tableTop);
+
+    doc.moveDown(0.5);
+    doc.font("Helvetica");
+
+    let total = 0;
+
+    detalles.forEach((d) => {
+      const y = doc.y;
+      doc.text(d.nombre_producto, col.producto, y);
+      doc.text(d.tb_cantida, col.cantidad, y);
+      doc.text(`$${Number(d.tb_precuni).toFixed(2)}`, col.precio, y);
+      doc.text(`$${Number(d.tb_subtota).toFixed(2)}`, col.subtotal, y);
+      total += Number(d.tb_subtota);
+      doc.moveDown(0.5);
+    });
+
+    doc.moveDown();
+    doc.font("Helvetica-Bold");
+    doc.text(`TOTAL: $${total.toFixed(2)}`, { align: "right" });
+
+    /* ====== PIE ====== */
+    doc.moveDown(2);
+    doc.fontSize(9).text("Gracias por su compra", { align: "center" });
+
+    doc.end();
+  } catch (error) {
+    console.error("ERROR PDF:", error);
+    res.status(500).json({ error: "Error generando factura PDF" });
+  }
+}
 /* ===========================
    ELIMINAR VENTA
 =========================== */

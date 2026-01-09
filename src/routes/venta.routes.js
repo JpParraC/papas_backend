@@ -4,7 +4,8 @@ import {
   getVentaById,
   createVenta,
   updateVenta,
-  deleteVenta
+  deleteVenta,
+  printFacturaPDF
 } from "../controllers/venta.controller.js";
 
 const router = Router();
@@ -12,6 +13,9 @@ const router = Router();
 /* ===========================
    VENTAS
 =========================== */
+
+// 🔥 FACTURA PDF (VA PRIMERO)
+router.get("/:id/factura", printFacturaPDF);
 
 // Obtener todas las ventas
 router.get("/", getVentas);
