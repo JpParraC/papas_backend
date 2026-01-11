@@ -3,9 +3,10 @@ import { createProduccion, getProduccion, deleteProduccion, updateProduccion } f
 
 const router = express.Router();
 
-router.get("/producc", getProduccion);
-router.post("/producc", createProduccion);
-router.delete("/producc/:id", deleteProduccion);
-router.put("/producc/:id", updateProduccion);
+// Todas las rutas aquí son relativas a /api/produccion
+router.get("/", getProduccion);
+router.post("/", createProduccion);
+router.delete("/:id", deleteProduccion);
+router.put("/:id", updateProduccion);
 
 export default router;

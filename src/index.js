@@ -1,4 +1,3 @@
-// src/index.js
 import express from 'express'
 import dotenv from 'dotenv'
 import cors from 'cors'
@@ -23,66 +22,37 @@ import produccRoutes from './routes/producc.routes.js'
 import reportesRoutes from './routes/reportes.routes.js'
 import rolesRoutes from './routes/roles.router.js'
 
-// Config
 dotenv.config()
 const app = express()
 
-// ======================
-// MIDDLEWARES GLOBALES
-// ======================
-app.use(cors({
-  origin: '*', // luego puedes limitar a tu frontend
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-}))
-
+// Middlewares
+app.use(cors())
 app.use(express.json())
 app.use(morgan('dev'))
 
-// ======================
-// RUTAS API
-// ======================
+// Rutas API
 app.use('/api/auth', authRoutes)
 app.use('/api/usuarios', usuariosRoutes)
 app.use('/api/roles', rolesRoutes)
-
 app.use('/api/cultivos', cultivosRoutes)
 app.use('/api/cosechas', cosechasRoutes)
 app.use('/api/ventas', ventasRoutes)
 app.use('/api/pagos', pagosRoutes)
-
 app.use('/api/clientes', clienteRoutes)
 app.use('/api/productos', productoRoutes)
 app.use('/api/proveedores', proveedorRoutes)
-
 app.use('/api/inventario', inventarioRoutes)
 app.use('/api/compras', compraRoutes)
 app.use('/api/detcompras', detcompRoutes)
-
 app.use('/api/personal', personalRoutes)
 app.use('/api/cargos', cargosRoutes)
 app.use('/api/producc', produccRoutes)
-
 app.use('/api/reportes', reportesRoutes)
 
-// ======================
-// HEALTH CHECK
-// ======================
-app.get('/health', (req, res) => {
-  res.json({
-    ok: true,
-    status: 'API running',
-    time: new Date(),
-  })
-})
+// Health check
+app.get('/health', (req, res) => res.json({ ok: true }))
 
-// ======================
-// MANEJO DE ERRORES
-// ======================
-app.use((req, res) => {
-  res.status(404).json({ error: 'Ruta no encontrada' })
-})
-
+// Manejo global de errores
 app.use((err, req, res, next) => {
   console.error('🔥 Error:', err)
   res.status(err.status || 500).json({
@@ -90,9 +60,7 @@ app.use((err, req, res, next) => {
   })
 })
 
-// ======================
-// SERVIDOR
-// ======================
+// Servidor
 const PORT = process.env.PORT || 4000
 app.listen(PORT, () => {
   console.log(`🚀 Backend corriendo en http://localhost:${PORT}`)
