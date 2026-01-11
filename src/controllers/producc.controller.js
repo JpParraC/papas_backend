@@ -1,60 +1,141 @@
 import db from "../db/index.js";
 
-// ================== CREAR PRODUCCIÓN ==================
+// ===========================================================
+// CREAR PRODUCCIÓN + STOCK + MOVIMIENTOS
+// ===========================================================
 export const createProduccion = async (req, res) => {
+  const client = await db.pool.connect();
+
   try {
     const {
-      tb_idprodut,
+      tb_idprodut,          // Producto cosecha
       tb_fechsiem,
       tb_fechcose,
       tb_canespel,
       tb_canoscoh,
       tb_areacult,
       tb_costprod,
-      tb_idrespon
+      tb_idrespon,
+      insumos               // [{ producto_id, cantidad }]
     } = req.body;
 
-    // Validación segura
+    // Validación
     if (
       tb_idprodut == null ||
       !tb_fechsiem ||
       !tb_fechcose ||
       tb_canespel == null ||
-      tb_areacult == null ||
-      tb_costprod == null ||
-      tb_idrespon == null
+      tb_canoscoh == null ||
+      !Array.isArray(insumos) ||
+      insumos.length === 0 ||
+      !tb_areacult ||
+      !tb_costprod ||
+      !tb_idrespon
     ) {
       return res.status(400).json({ message: "Faltan campos obligatorios" });
     }
 
-    const result = await db.query(
+    await client.query("BEGIN");
+
+    // Validar que el producto producido sea tipo COSECHA
+    const prodCheck = await client.query(
+      `SELECT tma_tipo FROM bdtma_produc WHERE tma_idprodu = $1`,
+      [tb_idprodut]
+    );
+
+    if (
+      !prodCheck.rows.length ||
+      prodCheck.rows[0].tma_tipo.trim().toUpperCase() !== "COSECHA"
+    ) {
+      throw new Error("El producto producido debe ser tipo COSECHA");
+    }
+
+
+    // Crear producción
+    const produccionRes = await client.query(
       `INSERT INTO tb_producc
        (tb_idprodut, tb_fechsiem, tb_fechcose, tb_canespel, tb_canoscoh, tb_areacult, tb_costprod, tb_idrespon)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
        RETURNING *`,
-      [
-        tb_idprodut,
-        tb_fechsiem,
-        tb_fechcose,
-        parseFloat(tb_canespel),
-        tb_canoscoh ? parseFloat(tb_canoscoh) : 0,
-        parseFloat(tb_areacult),
-        parseFloat(tb_costprod),
-        tb_idrespon
-      ]
+      [tb_idprodut, tb_fechsiem, tb_fechcose, tb_canespel, tb_canoscoh, tb_areacult, tb_costprod, tb_idrespon]
     );
 
-    res.status(201).json(result.rows[0]);
-  } catch (error) {
-    console.error("Error creando producción:", error);
-    res.status(500).json({
-      message: "Error al crear producción",
-      error: error.message
+    const produccionId = produccionRes.rows[0].tb_idproduc;
+
+    // ===================================================
+    // CONSUMO DE INSUMOS
+    // ===================================================
+    for (const insumo of insumos) {
+      // Validar tipo INSUMO
+      const insCheck = await client.query(
+        `SELECT tma_tipo FROM bdtma_produc WHERE tma_idprodu = $1`,
+        [insumo.producto_id]
+      );
+
+      if (!insCheck.rows.length || insCheck.rows[0].tma_tipo.trim().toUpperCase() !== "INSUMO") {
+        throw new Error("Solo se pueden consumir productos tipo INSUMO");
+      }
+
+
+      // Insertar detalle de insumo
+      await client.query(
+        `INSERT INTO tb_detproducc (tb_idproducc, producto_id, cantidad)
+         VALUES ($1,$2,$3)`,
+        [produccionId, insumo.producto_id, insumo.cantidad]
+      );
+
+      // Actualizar stock (salida)
+      await client.query(
+        `UPDATE tb_stock
+         SET cantidad = cantidad - $1
+         WHERE producto_id = $2`,
+        [insumo.cantidad, insumo.producto_id]
+      );
+
+      // Registrar movimiento
+      await client.query(
+        `INSERT INTO tb_movstock (producto_id, tipo, modulo, cantidad, referencia_id, fecha)
+         VALUES ($1,'SALIDA','PRODUCCION',$2,$3,NOW())`,
+        [insumo.producto_id, insumo.cantidad, produccionId]
+      );
+    }
+
+    // ===================================================
+    // ENTRADA DE COSECHA
+    // ===================================================
+    await client.query(
+      `INSERT INTO tb_stock (producto_id, cantidad)
+       VALUES ($1,$2)
+       ON CONFLICT (producto_id)
+       DO UPDATE SET cantidad = tb_stock.cantidad + EXCLUDED.cantidad`,
+      [tb_idprodut, tb_canoscoh]
+    );
+
+    await client.query(
+      `INSERT INTO tb_movstock (producto_id, tipo, modulo, cantidad, referencia_id, fecha)
+       VALUES ($1,'ENTRADA','PRODUCCION',$2,$3,NOW())`,
+      [tb_idprodut, tb_canoscoh, produccionId]
+    );
+
+    await client.query("COMMIT");
+
+    res.status(201).json({
+      message: "Producción registrada correctamente",
+      produccion: produccionRes.rows[0]
     });
+
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("ERROR producción:", error);
+    res.status(500).json({ message: "Error al crear producción", error: error.message });
+  } finally {
+    client.release();
   }
 };
 
-// ================== LISTAR PRODUCCIÓN ==================
+// ===========================================================
+// LISTAR PRODUCCIÓN
+// ===========================================================
 export const getProduccion = async (req, res) => {
   try {
     const result = await db.query(
@@ -81,37 +162,85 @@ export const getProduccion = async (req, res) => {
     res.json(result.rows);
   } catch (error) {
     console.error("Error obteniendo producción:", error);
-    res.status(500).json({
-      message: "Error al obtener producción",
-      error: error.message
-    });
+    res.status(500).json({ message: "Error al obtener producción", error: error.message });
   }
 };
 
-// ================== ELIMINAR PRODUCCIÓN ==================
+// ===========================================================
+// ELIMINAR PRODUCCIÓN
+// ===========================================================
 export const deleteProduccion = async (req, res) => {
+  const client = await db.pool.connect();
+
   try {
     const { id } = req.params;
 
-    // Borra la producción según el id
-    const result = await db.query(
-      `DELETE FROM tb_producc WHERE tb_idproduc = $1 RETURNING *`,
+    await client.query("BEGIN");
+
+    // Revertir stock de insumos y cosecha
+    const insumos = await client.query(
+      `SELECT * FROM tb_detproducc WHERE tb_idproducc = $1`,
       [id]
     );
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: 'Producción no encontrada' });
+    for (const i of insumos.rows) {
+      // Reponer stock insumo
+      await client.query(
+        `UPDATE tb_stock SET cantidad = cantidad + $1 WHERE producto_id = $2`,
+        [i.cantidad, i.producto_id]
+      );
+
+      // Movimiento reverso insumo
+      await client.query(
+        `INSERT INTO tb_movstock (producto_id, tipo, modulo, cantidad, referencia_id, fecha)
+         VALUES ($1,'REPOSICION','PRODUCCION',$2,$3,NOW())`,
+        [i.producto_id, i.cantidad, id]
+      );
     }
 
-    res.json({ message: 'Producción eliminada correctamente', deleted: result.rows[0] });
+    // Revertir stock de cosecha
+    const prod = await db.query(
+      `SELECT tb_canoscoh, tb_idprodut FROM tb_producc WHERE tb_idproduc = $1`,
+      [id]
+    );
+
+    if (prod.rows.length) {
+      const cosecha = prod.rows[0];
+      await client.query(
+        `UPDATE tb_stock SET cantidad = cantidad - $1 WHERE producto_id = $2`,
+        [cosecha.tb_canoscoh, cosecha.tb_idprodut]
+      );
+
+      await client.query(
+        `INSERT INTO tb_movstock (producto_id, tipo, modulo, cantidad, referencia_id, fecha)
+         VALUES ($1,'SALIDA','PRODUCCION',$2,$3,NOW())`,
+        [cosecha.tb_idprodut, cosecha.tb_canoscoh, id]
+      );
+    }
+
+    // Eliminar detalle y producción
+    await client.query(`DELETE FROM tb_detproducc WHERE tb_idproducc = $1`, [id]);
+    await client.query(`DELETE FROM tb_producc WHERE tb_idproduc = $1`, [id]);
+
+    await client.query("COMMIT");
+
+    res.json({ message: 'Producción eliminada correctamente' });
+
   } catch (error) {
-    console.error('Error eliminando producción:', error);
-    res.status(500).json({ message: 'Error al eliminar producción', error: error.message });
+    await client.query("ROLLBACK");
+    console.error("Error eliminando producción:", error);
+    res.status(500).json({ message: "Error al eliminar producción", error: error.message });
+  } finally {
+    client.release();
   }
 };
 
-// ================== EDITAR PRODUCCIÓN ==================
+// ===========================================================
+// ACTUALIZAR PRODUCCIÓN
+// ===========================================================
 export const updateProduccion = async (req, res) => {
+  const client = await db.pool.connect();
+
   try {
     const { id } = req.params;
     const {
@@ -122,56 +251,128 @@ export const updateProduccion = async (req, res) => {
       tb_canoscoh,
       tb_areacult,
       tb_costprod,
-      tb_idrespon
+      tb_idrespon,
+      insumos
     } = req.body;
 
-    // Validación básica
     if (
       tb_idprodut == null ||
       !tb_fechsiem ||
       !tb_fechcose ||
       tb_canespel == null ||
-      tb_areacult == null ||
-      tb_costprod == null ||
-      tb_idrespon == null
+      tb_canoscoh == null ||
+      !Array.isArray(insumos) ||
+      !tb_areacult ||
+      !tb_costprod ||
+      !tb_idrespon
     ) {
       return res.status(400).json({ message: "Faltan campos obligatorios" });
     }
 
-    // Actualiza la producción
-    const result = await db.query(
-      `UPDATE tb_producc
-       SET tb_idprodut = $1,
-           tb_fechsiem = $2,
-           tb_fechcose = $3,
-           tb_canespel = $4,
-           tb_canoscoh = $5,
-           tb_areacult = $6,
-           tb_costprod = $7,
-           tb_idrespon = $8
-       WHERE tb_idproduc = $9
-       RETURNING *`,
-      [
-        tb_idprodut,
-        tb_fechsiem,
-        tb_fechcose,
-        parseFloat(tb_canespel),
-        tb_canoscoh ? parseFloat(tb_canoscoh) : 0,
-        parseFloat(tb_areacult),
-        parseFloat(tb_costprod),
-        tb_idrespon,
-        id
-      ]
+    await client.query("BEGIN");
+
+    // Revertir stock anterior
+    const oldProduccion = await client.query(
+      `SELECT * FROM tb_producc WHERE tb_idproduc = $1`,
+      [id]
     );
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: 'Producción no encontrada' });
+    if (!oldProduccion.rows.length) {
+      throw new Error("Producción no encontrada");
     }
 
-    res.json({ message: 'Producción actualizada correctamente', updated: result.rows[0] });
+    // Revertir insumos
+    const oldInsumos = await client.query(
+      `SELECT * FROM tb_detproducc WHERE tb_idproducc = $1`,
+      [id]
+    );
+
+    for (const i of oldInsumos.rows) {
+      await client.query(
+        `UPDATE tb_stock SET cantidad = cantidad + $1 WHERE producto_id = $2`,
+        [i.cantidad, i.producto_id]
+      );
+
+      await client.query(
+        `INSERT INTO tb_movstock (producto_id, tipo, modulo, cantidad, referencia_id, fecha)
+         VALUES ($1,'REPOSICION','PRODUCCION',$2,$3,NOW())`,
+        [i.producto_id, i.cantidad, id]
+      );
+    }
+
+    // Revertir cosecha anterior
+    const oldCosecha = oldProduccion.rows[0];
+    await client.query(
+      `UPDATE tb_stock SET cantidad = cantidad - $1 WHERE producto_id = $2`,
+      [oldCosecha.tb_canoscoh, oldCosecha.tb_idprodut]
+    );
+
+    await client.query(
+      `INSERT INTO tb_movstock (producto_id, tipo, modulo, cantidad, referencia_id, fecha)
+       VALUES ($1,'SALIDA','PRODUCCION',$2,$3,NOW())`,
+      [oldCosecha.tb_idprodut, oldCosecha.tb_canoscoh, id]
+    );
+
+    // Eliminar detalle anterior
+    await client.query(`DELETE FROM tb_detproducc WHERE tb_idproducc = $1`, [id]);
+
+    // Insertar nuevos insumos
+    for (const insumo of insumos) {
+      await client.query(
+        `INSERT INTO tb_detproducc (tb_idproducc, producto_id, cantidad)
+         VALUES ($1,$2,$3)`,
+        [id, insumo.producto_id, insumo.cantidad]
+      );
+
+      // Descontar stock insumo
+      await client.query(
+        `UPDATE tb_stock SET cantidad = cantidad - $1 WHERE producto_id = $2`,
+        [insumo.cantidad, insumo.producto_id]
+      );
+
+      // Movimiento insumo
+      await client.query(
+        `INSERT INTO tb_movstock (producto_id, tipo, modulo, cantidad, referencia_id, fecha)
+         VALUES ($1,'SALIDA','PRODUCCION',$2,$3,NOW())`,
+        [insumo.producto_id, insumo.cantidad, id]
+      );
+    }
+
+    // Sumar nueva cosecha
+    await client.query(
+      `INSERT INTO tb_stock (producto_id, cantidad)
+       VALUES ($1,$2)
+       ON CONFLICT (producto_id)
+       DO UPDATE SET cantidad = tb_stock.cantidad + EXCLUDED.cantidad`,
+      [tb_idprodut, tb_canoscoh]
+    );
+
+    await client.query(
+      `INSERT INTO tb_movstock (producto_id, tipo, modulo, cantidad, referencia_id, fecha)
+       VALUES ($1,'ENTRADA','PRODUCCION',$2,$3,NOW())`,
+      [tb_idprodut, tb_canoscoh, id]
+    );
+
+    // Actualizar producción
+    const updatedProduccion = await client.query(
+      `UPDATE tb_producc
+       SET tb_idprodut=$1, tb_fechsiem=$2, tb_fechcose=$3,
+           tb_canespel=$4, tb_canoscoh=$5, tb_areacult=$6,
+           tb_costprod=$7, tb_idrespon=$8
+       WHERE tb_idproduc=$9
+       RETURNING *`,
+      [tb_idprodut, tb_fechsiem, tb_fechcose, tb_canespel, tb_canoscoh, tb_areacult, tb_costprod, tb_idrespon, id]
+    );
+
+    await client.query("COMMIT");
+
+    res.json({ message: "Producción actualizada correctamente", updated: updatedProduccion.rows[0] });
 
   } catch (error) {
-    console.error('Error actualizando producción:', error);
-    res.status(500).json({ message: 'Error al actualizar producción', error: error.message });
+    await client.query("ROLLBACK");
+    console.error("ERROR actualizar producción:", error);
+    res.status(500).json({ message: "Error al actualizar producción", error: error.message });
+  } finally {
+    client.release();
   }
 };

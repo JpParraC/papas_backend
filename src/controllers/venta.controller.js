@@ -1,4 +1,3 @@
-// src/controllers/venta.controller.js
 import db from "../db/index.js";
 import PDFDocument from "pdfkit";
 
@@ -7,7 +6,7 @@ import PDFDocument from "pdfkit";
 =========================== */
 export async function getVentas(req, res) {
   try {
-    const query = `
+    const { rows } = await db.query(`
       SELECT v.tb_idventa,
              v.tb_idclien,
              c.tma_nombrec AS cliente,
@@ -16,115 +15,127 @@ export async function getVentas(req, res) {
              v.tb_estadven
       FROM tb_ventas v
       JOIN bdtma_cliente c ON v.tb_idclien = c.tma_idclien
-      ORDER BY v.tb_idventa ASC;
-    `;
-    const { rows } = await db.query(query);
+      ORDER BY v.tb_idventa;
+    `);
     res.json(rows);
   } catch (error) {
-    console.error(error);
     res.status(500).json({ error: "Error obteniendo ventas" });
   }
 }
 
 /* ===========================
-   OBTENER VENTA CON DETALLES
+   OBTENER VENTA POR ID
 =========================== */
 export async function getVentaById(req, res) {
   try {
     const { id } = req.params;
 
-    const ventaQuery = `
-      SELECT v.*,
-             c.tma_nombrec AS cliente
+    const venta = await db.query(`
+      SELECT v.*, c.tma_nombrec AS cliente
       FROM tb_ventas v
       JOIN bdtma_cliente c ON v.tb_idclien = c.tma_idclien
-      WHERE v.tb_idventa = $1
-    `;
-    const detalleQuery = `
-      SELECT d.*,
-             p.tma_nombrep AS nombre_producto
-      FROM tb_detvent d
-      JOIN bdtma_produc p ON d.tb_idprodu = p.tma_idprodu
-      WHERE d.tb_idventa = $1
-      ORDER BY d.tb_iddetve;
-    `;
+      WHERE v.tb_idventa=$1
+    `, [id]);
 
-    const ventaResult = await db.query(ventaQuery, [id]);
-    if (!ventaResult.rows.length) {
+    if (!venta.rows.length) {
       return res.status(404).json({ error: "Venta no encontrada" });
     }
 
-    const detallesResult = await db.query(detalleQuery, [id]);
+    const detalles = await db.query(`
+      SELECT d.*, p.tma_nombrep AS nombre_producto
+      FROM tb_detvent d
+      JOIN bdtma_produc p ON d.tb_idprodu = p.tma_idprodu
+      WHERE d.tb_idventa=$1
+      ORDER BY d.tb_iddetve
+    `, [id]);
 
     res.json({
-      ...ventaResult.rows[0],
-      detalles: detallesResult.rows,
+      ...venta.rows[0],
+      detalles: detalles.rows
     });
   } catch (error) {
-    console.error(error);
     res.status(500).json({ error: "Error obteniendo venta" });
   }
 }
 
 /* ===========================
-   CREAR VENTA + DETALLES
+   CREAR VENTA + INVENTARIO
 =========================== */
 export async function createVenta(req, res) {
   const client = await db.pool.connect();
   try {
     const { idCliente, estado, detalles } = req.body;
 
-    if (!idCliente || !Array.isArray(detalles) || detalles.length === 0) {
-      return res.status(400).json({ error: "Faltan datos de venta o detalles" });
+    if (!idCliente || !Array.isArray(detalles) || !detalles.length) {
+      return res.status(400).json({ error: "Datos incompletos" });
     }
 
     await client.query("BEGIN");
 
-    // Asegurar números válidos
     const detallesValidos = detalles.map(d => ({
-      idProducto: Number(d.idProducto) || 0,
-      cantidad: Number(d.cantidad) || 0,
-      precio: Number(d.precio) || 0
+      idProducto: Number(d.idProducto),
+      cantidad: Number(d.cantidad),
+      precio: Number(d.precio)
     }));
 
-    const total = detallesValidos.reduce((acc, d) => acc + d.cantidad * d.precio, 0);
+    // VALIDAR STOCK
+    for (const d of detallesValidos) {
+      const stock = await client.query(
+        "SELECT cantidad FROM tb_stock WHERE producto_id=$1",
+        [d.idProducto]
+      );
+      if (!stock.rows.length || stock.rows[0].cantidad < d.cantidad) {
+        throw new Error(`Stock insuficiente producto ${d.idProducto}`);
+      }
+    }
 
-    const ventaQuery = `
+    const total = detallesValidos.reduce(
+      (acc, d) => acc + d.cantidad * d.precio, 0
+    );
+
+    const ventaRes = await client.query(`
       INSERT INTO tb_ventas (tb_idclien, tb_fechvent, tb_totalven, tb_estadven)
       VALUES ($1, NOW(), $2, $3)
-      RETURNING tb_idventa;
-    `;
-    const ventaResult = await client.query(ventaQuery, [idCliente, total, estado]);
-    const idVenta = ventaResult.rows[0].tb_idventa;
+      RETURNING tb_idventa
+    `, [idCliente, total, estado]);
 
-    const detalleQuery = `
-      INSERT INTO tb_detvent (tb_idventa, tb_idprodu, tb_cantida, tb_precuni, tb_subtota)
-      VALUES ($1, $2, $3, $4, $5);
-    `;
+    const idVenta = ventaRes.rows[0].tb_idventa;
+
     for (const d of detallesValidos) {
-      await client.query(detalleQuery, [
-        idVenta,
-        d.idProducto,
-        d.cantidad,
-        d.precio,
-        d.cantidad * d.precio
-      ]);
+      await client.query(`
+        INSERT INTO tb_detvent
+        (tb_idventa, tb_idprodu, tb_cantida, tb_precuni, tb_subtota)
+        VALUES ($1,$2,$3,$4,$5)
+      `, [idVenta, d.idProducto, d.cantidad, d.precio, d.cantidad * d.precio]);
+
+      // MOVIMIENTO
+      await client.query(`
+        INSERT INTO tb_movstock
+        (producto_id, tipo, modulo, cantidad, referencia_id, fecha)
+        VALUES ($1,'SALIDA','VENTA',$2,$3,NOW())
+      `, [d.idProducto, d.cantidad, idVenta]);
+
+      // DESCONTAR STOCK
+      await client.query(`
+        UPDATE tb_stock
+        SET cantidad = cantidad - $1
+        WHERE producto_id=$2
+      `, [d.cantidad, d.idProducto]);
     }
 
     await client.query("COMMIT");
+    res.status(201).json({ message: "Venta creada", idVenta });
 
-    res.status(201).json({ message: "Venta creada correctamente", idVenta });
   } catch (error) {
     await client.query("ROLLBACK");
-    console.error("ERROR createVenta:", error);
-    res.status(500).json({ error: "Error creando venta" });
+    res.status(500).json({ error: error.message });
   } finally {
     client.release();
   }
 }
 
 /* ===========================
-   ACTUALIZAR VENTA + DETALLES
+   ACTUALIZAR VENTA + INVENTARIO
 =========================== */
 export async function updateVenta(req, res) {
   const client = await db.pool.connect();
@@ -132,60 +143,111 @@ export async function updateVenta(req, res) {
     const { id } = req.params;
     const { estado, detalles } = req.body;
 
-    if (!Array.isArray(detalles) || detalles.length === 0) {
-      return res.status(400).json({ error: "Faltan detalles para actualizar" });
-    }
-
     await client.query("BEGIN");
 
-    // Validar y convertir a números
-    const detallesValidos = detalles.map(d => ({
-      idProducto: Number(d.idProducto) || 0,
-      cantidad: Number(d.cantidad) || 0,
-      precio: Number(d.precio) || 0
-    }));
+    // DEVOLVER STOCK ANTERIOR
+    const oldDet = await client.query(
+      "SELECT tb_idprodu, tb_cantida FROM tb_detvent WHERE tb_idventa=$1",
+      [id]
+    );
 
-    const total = detallesValidos.reduce((acc, d) => acc + d.cantidad * d.precio, 0);
-
-    // Actualizar estado y total
-    const updateVentaQuery = `
-      UPDATE tb_ventas
-      SET tb_estadven=$1,
-          tb_totalven=$2
-      WHERE tb_idventa=$3
-      RETURNING *;
-    `;
-    const ventaActualizada = await client.query(updateVentaQuery, [estado, total, id]);
-    if (!ventaActualizada.rows.length) {
-      await client.query("ROLLBACK");
-      return res.status(404).json({ error: "Venta no encontrada" });
+    for (const d of oldDet.rows) {
+      await client.query(
+        "UPDATE tb_stock SET cantidad = cantidad + $1 WHERE producto_id=$2",
+        [d.tb_cantida, d.tb_idprodu]
+      );
     }
 
-    // Eliminar detalles anteriores
-    await client.query(`DELETE FROM tb_detvent WHERE tb_idventa=$1`, [id]);
+    await client.query(
+      "DELETE FROM tb_movstock WHERE modulo='VENTA' AND referencia_id=$1",
+      [id]
+    );
 
-    // Insertar nuevos detalles
-    const detalleQuery = `
-      INSERT INTO tb_detvent (tb_idventa, tb_idprodu, tb_cantida, tb_precuni, tb_subtota)
-      VALUES ($1, $2, $3, $4, $5);
-    `;
+    await client.query("DELETE FROM tb_detvent WHERE tb_idventa=$1", [id]);
+
+    const detallesValidos = detalles.map(d => ({
+      idProducto: Number(d.idProducto),
+      cantidad: Number(d.cantidad),
+      precio: Number(d.precio)
+    }));
+
+    const total = detallesValidos.reduce(
+      (acc, d) => acc + d.cantidad * d.precio, 0
+    );
+
+    await client.query(`
+      UPDATE tb_ventas
+      SET tb_estadven=$1, tb_totalven=$2
+      WHERE tb_idventa=$3
+    `, [estado, total, id]);
+
     for (const d of detallesValidos) {
-      await client.query(detalleQuery, [
-        id,
-        d.idProducto,
-        d.cantidad,
-        d.precio,
-        d.cantidad * d.precio
-      ]);
+      await client.query(`
+        INSERT INTO tb_detvent
+        (tb_idventa, tb_idprodu, tb_cantida, tb_precuni, tb_subtota)
+        VALUES ($1,$2,$3,$4,$5)
+      `, [id, d.idProducto, d.cantidad, d.precio, d.cantidad * d.precio]);
+
+      await client.query(`
+        INSERT INTO tb_movstock
+        (producto_id, tipo, modulo, cantidad, referencia_id, fecha)
+        VALUES ($1,'SALIDA','VENTA',$2,$3,NOW())
+      `, [d.idProducto, d.cantidad, id]);
+
+      await client.query(`
+        UPDATE tb_stock
+        SET cantidad = cantidad - $1
+        WHERE producto_id=$2
+      `, [d.cantidad, d.idProducto]);
     }
 
     await client.query("COMMIT");
+    res.json({ message: "Venta actualizada" });
 
-    res.json({ message: "Venta actualizada correctamente", venta: ventaActualizada.rows[0] });
   } catch (error) {
     await client.query("ROLLBACK");
-    console.error("ERROR updateVenta:", error);
-    res.status(500).json({ error: "Error actualizando venta" });
+    res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
+  }
+}
+
+/* ===========================
+   ELIMINAR VENTA + INVENTARIO
+=========================== */
+export async function deleteVenta(req, res) {
+  const client = await db.pool.connect();
+  try {
+    const { id } = req.params;
+
+    await client.query("BEGIN");
+
+    const detalles = await client.query(
+      "SELECT tb_idprodu, tb_cantida FROM tb_detvent WHERE tb_idventa=$1",
+      [id]
+    );
+
+    for (const d of detalles.rows) {
+      await client.query(
+        "UPDATE tb_stock SET cantidad = cantidad + $1 WHERE producto_id=$2",
+        [d.tb_cantida, d.tb_idprodu]
+      );
+    }
+
+    await client.query(
+      "DELETE FROM tb_movstock WHERE modulo='VENTA' AND referencia_id=$1",
+      [id]
+    );
+
+    await client.query("DELETE FROM tb_detvent WHERE tb_idventa=$1", [id]);
+    await client.query("DELETE FROM tb_ventas WHERE tb_idventa=$1", [id]);
+
+    await client.query("COMMIT");
+    res.json({ message: "Venta eliminada" });
+
+  } catch (error) {
+    await client.query("ROLLBACK");
+    res.status(500).json({ error: error.message });
   } finally {
     client.release();
   }
@@ -232,12 +294,7 @@ export async function printFacturaPDF(req, res) {
 
     doc.pipe(res);
 
-    /* ====== ENCABEZADO ====== */
-    doc
-      .fontSize(18)
-      .text("FACTURA", { align: "center" })
-      .moveDown();
-
+    doc.fontSize(18).text("FACTURA", { align: "center" }).moveDown();
     doc.fontSize(10);
     doc.text(`Factura Nº: ${venta.tb_idventa}`);
     doc.text(`Fecha: ${venta.tb_fechvent}`);
@@ -245,74 +302,24 @@ export async function printFacturaPDF(req, res) {
     doc.text(`Estado: ${venta.tb_estadven}`);
     doc.moveDown();
 
-    /* ====== TABLA ====== */
     doc.fontSize(11).text("Detalle de productos", { underline: true });
     doc.moveDown(0.5);
 
-    const tableTop = doc.y;
-    const col = {
-      producto: 40,
-      cantidad: 250,
-      precio: 320,
-      subtotal: 400,
-    };
-
-    doc.font("Helvetica-Bold");
-    doc.text("Producto", col.producto, tableTop);
-    doc.text("Cant.", col.cantidad, tableTop);
-    doc.text("Precio", col.precio, tableTop);
-    doc.text("Subtotal", col.subtotal, tableTop);
-
-    doc.moveDown(0.5);
-    doc.font("Helvetica");
-
     let total = 0;
-
-    detalles.forEach((d) => {
-      const y = doc.y;
-      doc.text(d.nombre_producto, col.producto, y);
-      doc.text(d.tb_cantida, col.cantidad, y);
-      doc.text(`$${Number(d.tb_precuni).toFixed(2)}`, col.precio, y);
-      doc.text(`$${Number(d.tb_subtota).toFixed(2)}`, col.subtotal, y);
+    detalles.forEach(d => {
+      doc.text(
+        `${d.nombre_producto} | Cant: ${d.tb_cantida} | $${d.tb_precuni} | Sub: $${d.tb_subtota}`
+      );
       total += Number(d.tb_subtota);
-      doc.moveDown(0.5);
     });
 
     doc.moveDown();
     doc.font("Helvetica-Bold");
     doc.text(`TOTAL: $${total.toFixed(2)}`, { align: "right" });
 
-    /* ====== PIE ====== */
-    doc.moveDown(2);
-    doc.fontSize(9).text("Gracias por su compra", { align: "center" });
-
     doc.end();
   } catch (error) {
-    console.error("ERROR PDF:", error);
-    res.status(500).json({ error: "Error generando factura PDF" });
-  }
-}
-/* ===========================
-   ELIMINAR VENTA
-=========================== */
-export async function deleteVenta(req, res) {
-  const client = await db.pool.connect();
-  try {
-    const { id } = req.params;
-
-    await client.query("BEGIN");
-
-    await client.query("DELETE FROM tb_detvent WHERE tb_idventa=$1", [id]);
-    await client.query("DELETE FROM tb_ventas WHERE tb_idventa=$1", [id]);
-
-    await client.query("COMMIT");
-
-    res.json({ message: "Venta eliminada correctamente" });
-  } catch (error) {
-    await client.query("ROLLBACK");
-    console.error("ERROR deleteVenta:", error);
-    res.status(500).json({ error: "Error eliminando venta" });
-  } finally {
-    client.release();
+    console.error(error);
+    res.status(500).json({ error: "Error generando PDF" });
   }
 }

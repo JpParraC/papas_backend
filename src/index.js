@@ -45,7 +45,7 @@ app.use("/api/productos", productoRoutes);
 app.use("/api/clientes", clienteRoutes);
 app.use('/api/personal', personalRoutes);
 app.use('/api/cargos', cargosRoutes);
-app.use("/api", produccRoutes);
+app.use("/api/producc", produccRoutes);
 app.use("/api/reportes", reportesRoutes);
 
 app.get('/health', (req, res) => res.json({ ok: true }));
