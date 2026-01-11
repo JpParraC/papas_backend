@@ -1,6 +1,7 @@
 import {
   getProductos,
   getProductosCosecha,
+  getProductosInsumo,
   createProducto,
   updateProducto,
   deleteProducto
@@ -11,6 +12,7 @@ const router = Router();
 
 router.get('/', getProductos);
 router.get('/cosecha', getProductosCosecha);
+router.get('/insumo', getProductosInsumo);
 router.post('/', createProducto);
 router.put('/:id', updateProducto);
 router.delete('/:id', deleteProducto);
