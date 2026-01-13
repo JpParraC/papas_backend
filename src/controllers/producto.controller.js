@@ -22,16 +22,16 @@ export async function getProductos(req, res) {
 // Crear producto
 export async function createProducto(req, res) {
   try {
-    const { nombre, descripcion, unidad, precio, stock, tipo } = req.body;
+    const { nombre, descripcion, unidad, precio, tipo } = req.body;
 
     const query = `
       INSERT INTO BDTMA_PRODUC
-      (TMA_NOMBREP, TMA_DESCRIP, TMA_UNIDADE, TMA_PRECIOU, TMA_STOCKMI, TMA_TIPO)
-      VALUES ($1, $2, $3, $4, $5, $6)
+      (TMA_NOMBREP, TMA_DESCRIP, TMA_UNIDADE, TMA_PRECIOU, TMA_TIPO)
+      VALUES ($1, $2, $3, $4, $5)
       RETURNING *;
     `;
 
-    const values = [nombre, descripcion, unidad, precio, stock, tipo];
+    const values = [nombre, descripcion, unidad, precio, tipo];
     const { rows } = await db.query(query, values);
 
     res.json(rows[0]);
