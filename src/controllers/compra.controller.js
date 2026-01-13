@@ -198,13 +198,39 @@ export const obtenerCompraPorId = async (req, res) => {
 // ===========================================================
 export const obtenerDetalleCompra = async (req, res) => {
   const { id } = req.params;
-  const result = await db.query(`
-    SELECT d.*, p.tma_nombrep AS producto, p.tma_unidade AS unidad
-    FROM ${T}tb_detcomp d
-    JOIN ${T}bdtma_produc p ON p.tma_idprodu = d.tb_idprodu
-    WHERE d.tb_idcompr=$1
-  `, [id]);
-  res.json(result.rows);
+
+  try {
+    const result = await db.query(`
+      SELECT
+        c.tb_idcompra                     AS compra_id,
+        c.tb_fechcomp                     AS fecha_compra,
+        prov.tma_nombrep                  AS proveedor,
+
+        p.tma_nombrep                     AS producto,
+        d.tb_cantidad                     AS cantidad,
+        d.tb_precunic                     AS precio_unitario,
+        d.tb_subtotal                     AS subtotal
+
+      FROM ${T}tb_detcomp d
+      JOIN ${T}tb_compras c
+        ON c.tb_idcompra = d.tb_idcompr
+
+      JOIN ${T}bdtma_proveed prov
+        ON prov.tma_idprove = c.tb_idproveed
+
+      JOIN ${T}bdtma_produc p
+        ON p.tma_idprodu = d.tb_idprodu
+
+      WHERE d.tb_idcompr = $1
+      ORDER BY p.tma_nombrep ASC
+    `, [id]);
+
+    res.json(result.rows);
+
+  } catch (error) {
+    console.error("ERROR obtenerDetalleCompra:", error);
+    res.status(500).json({ message: "Error obteniendo detalle de compra" });
+  }
 };
 
 // ===========================================================
