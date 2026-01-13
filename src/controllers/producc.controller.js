@@ -8,7 +8,7 @@ export const createProduccion = async (req, res) => {
 
   try {
     const {
-      tb_idprodut,          // Producto cosecha
+      tb_idprodut,          // Producto COSECHA
       tb_fechsiem,
       tb_fechcose,
       tb_canespel,
@@ -19,7 +19,6 @@ export const createProduccion = async (req, res) => {
       insumos               // [{ producto_id, cantidad }]
     } = req.body;
 
-    // Validación
     if (
       tb_idprodut == null ||
       !tb_fechsiem ||
@@ -37,19 +36,15 @@ export const createProduccion = async (req, res) => {
 
     await client.query("BEGIN");
 
-    // Validar que el producto producido sea tipo COSECHA
+    // Validar producto cosecha
     const prodCheck = await client.query(
       `SELECT tma_tipo FROM bdtma_produc WHERE tma_idprodu = $1`,
       [tb_idprodut]
     );
 
-    if (
-      !prodCheck.rows.length ||
-      prodCheck.rows[0].tma_tipo.trim().toUpperCase() !== "COSECHA"
-    ) {
+    if (!prodCheck.rows.length || prodCheck.rows[0].tma_tipo.trim().toUpperCase() !== "COSECHA") {
       throw new Error("El producto producido debe ser tipo COSECHA");
     }
-
 
     // Crear producción
     const produccionRes = await client.query(
@@ -62,11 +57,8 @@ export const createProduccion = async (req, res) => {
 
     const produccionId = produccionRes.rows[0].tb_idproduc;
 
-    // ===================================================
-    // CONSUMO DE INSUMOS
-    // ===================================================
+    // ================= CONSUMO DE INSUMOS =================
     for (const insumo of insumos) {
-      // Validar tipo INSUMO
       const insCheck = await client.query(
         `SELECT tma_tipo FROM bdtma_produc WHERE tma_idprodu = $1`,
         [insumo.producto_id]
@@ -76,23 +68,17 @@ export const createProduccion = async (req, res) => {
         throw new Error("Solo se pueden consumir productos tipo INSUMO");
       }
 
-
-      // Insertar detalle de insumo
       await client.query(
         `INSERT INTO tb_detproducc (tb_idproducc, producto_id, cantidad)
          VALUES ($1,$2,$3)`,
         [produccionId, insumo.producto_id, insumo.cantidad]
       );
 
-      // Actualizar stock (salida)
       await client.query(
-        `UPDATE tb_stock
-         SET cantidad = cantidad - $1
-         WHERE producto_id = $2`,
+        `UPDATE tb_stock SET cantidad = cantidad - $1 WHERE producto_id = $2`,
         [insumo.cantidad, insumo.producto_id]
       );
 
-      // Registrar movimiento
       await client.query(
         `INSERT INTO tb_movstock (producto_id, tipo, modulo, cantidad, referencia_id, fecha)
          VALUES ($1,'SALIDA','PRODUCCION',$2,$3,NOW())`,
@@ -100,9 +86,7 @@ export const createProduccion = async (req, res) => {
       );
     }
 
-    // ===================================================
-    // ENTRADA DE COSECHA
-    // ===================================================
+    // ================= ENTRADA DE COSECHA =================
     await client.query(
       `INSERT INTO tb_stock (producto_id, cantidad)
        VALUES ($1,$2)
@@ -138,31 +122,29 @@ export const createProduccion = async (req, res) => {
 // ===========================================================
 export const getProduccion = async (req, res) => {
   try {
-    const result = await db.query(
-      `SELECT 
-         p.tb_idproduc AS id,
-         p.tb_idprodut,
-         prod.tma_nombrep AS producto,
-         p.tb_fechsiem AS fecha_siembra,
-         p.tb_fechcose AS fecha_cosecha,
-         p.tb_canespel AS cantidad_esperada,
-         p.tb_canoscoh AS cantidad_cosechada,
-         p.tb_areacult AS area_cultivo,
-         p.tb_costprod AS costo_produccion,
-         p.tb_idrespon,
-         per.tma_nombrep AS responsable
-       FROM tb_producc p
-       LEFT JOIN bdtma_produc prod
-         ON prod.tma_idprodu = p.tb_idprodut
-       LEFT JOIN bdtma_personal per
-         ON per.tma_idperso = p.tb_idrespon
-       ORDER BY p.tb_idproduc ASC`
-    );
+    const result = await db.query(`
+      SELECT 
+        p.tb_idproduc AS id,
+        p.tb_idprodut,
+        prod.tma_nombrep AS producto,
+        p.tb_fechsiem AS fecha_siembra,
+        p.tb_fechcose AS fecha_cosecha,
+        p.tb_canespel AS cantidad_esperada,
+        p.tb_canoscoh AS cantidad_cosechada,
+        p.tb_areacult AS area_cultivo,
+        p.tb_costprod AS costo_produccion,
+        p.tb_idrespon,
+        per.tma_nombrep AS responsable
+      FROM tb_producc p
+      LEFT JOIN bdtma_produc prod ON prod.tma_idprodu = p.tb_idprodut
+      LEFT JOIN bdtma_personal per ON per.tma_idperso = p.tb_idrespon
+      ORDER BY p.tb_idproduc ASC
+    `);
 
     res.json(result.rows);
   } catch (error) {
     console.error("Error obteniendo producción:", error);
-    res.status(500).json({ message: "Error al obtener producción", error: error.message });
+    res.status(500).json({ message: "Error al obtener producción" });
   }
 };
 
@@ -174,38 +156,34 @@ export const deleteProduccion = async (req, res) => {
 
   try {
     const { id } = req.params;
-
     await client.query("BEGIN");
 
-    // Revertir stock de insumos y cosecha
     const insumos = await client.query(
       `SELECT * FROM tb_detproducc WHERE tb_idproducc = $1`,
       [id]
     );
 
     for (const i of insumos.rows) {
-      // Reponer stock insumo
       await client.query(
         `UPDATE tb_stock SET cantidad = cantidad + $1 WHERE producto_id = $2`,
         [i.cantidad, i.producto_id]
       );
 
-      // Movimiento reverso insumo
       await client.query(
         `INSERT INTO tb_movstock (producto_id, tipo, modulo, cantidad, referencia_id, fecha)
-         VALUES ($1,'REPOSICION','PRODUCCION',$2,$3,NOW())`,
+         VALUES ($1,'ENTRADA','PRODUCCION',$2,$3,NOW())`,
         [i.producto_id, i.cantidad, id]
       );
     }
 
-    // Revertir stock de cosecha
-    const prod = await db.query(
+    const prod = await client.query(
       `SELECT tb_canoscoh, tb_idprodut FROM tb_producc WHERE tb_idproduc = $1`,
       [id]
     );
 
     if (prod.rows.length) {
       const cosecha = prod.rows[0];
+
       await client.query(
         `UPDATE tb_stock SET cantidad = cantidad - $1 WHERE producto_id = $2`,
         [cosecha.tb_canoscoh, cosecha.tb_idprodut]
@@ -218,18 +196,17 @@ export const deleteProduccion = async (req, res) => {
       );
     }
 
-    // Eliminar detalle y producción
     await client.query(`DELETE FROM tb_detproducc WHERE tb_idproducc = $1`, [id]);
     await client.query(`DELETE FROM tb_producc WHERE tb_idproduc = $1`, [id]);
 
     await client.query("COMMIT");
 
-    res.json({ message: 'Producción eliminada correctamente' });
+    res.json({ message: "Producción eliminada correctamente" });
 
   } catch (error) {
     await client.query("ROLLBACK");
     console.error("Error eliminando producción:", error);
-    res.status(500).json({ message: "Error al eliminar producción", error: error.message });
+    res.status(500).json({ message: "Error al eliminar producción" });
   } finally {
     client.release();
   }
@@ -271,22 +248,19 @@ export const updateProduccion = async (req, res) => {
 
     await client.query("BEGIN");
 
-    // Revertir stock anterior
     const oldProduccion = await client.query(
       `SELECT * FROM tb_producc WHERE tb_idproduc = $1`,
       [id]
     );
 
-    if (!oldProduccion.rows.length) {
-      throw new Error("Producción no encontrada");
-    }
+    if (!oldProduccion.rows.length) throw new Error("Producción no encontrada");
 
-    // Revertir insumos
     const oldInsumos = await client.query(
       `SELECT * FROM tb_detproducc WHERE tb_idproducc = $1`,
       [id]
     );
 
+    // Revertir insumos
     for (const i of oldInsumos.rows) {
       await client.query(
         `UPDATE tb_stock SET cantidad = cantidad + $1 WHERE producto_id = $2`,
@@ -295,12 +269,12 @@ export const updateProduccion = async (req, res) => {
 
       await client.query(
         `INSERT INTO tb_movstock (producto_id, tipo, modulo, cantidad, referencia_id, fecha)
-         VALUES ($1,'REPOSICION','PRODUCCION',$2,$3,NOW())`,
+         VALUES ($1,'ENTRADA','PRODUCCION',$2,$3,NOW())`,
         [i.producto_id, i.cantidad, id]
       );
     }
 
-    // Revertir cosecha anterior
+    // Revertir cosecha
     const oldCosecha = oldProduccion.rows[0];
     await client.query(
       `UPDATE tb_stock SET cantidad = cantidad - $1 WHERE producto_id = $2`,
@@ -313,10 +287,9 @@ export const updateProduccion = async (req, res) => {
       [oldCosecha.tb_idprodut, oldCosecha.tb_canoscoh, id]
     );
 
-    // Eliminar detalle anterior
     await client.query(`DELETE FROM tb_detproducc WHERE tb_idproducc = $1`, [id]);
 
-    // Insertar nuevos insumos
+    // Nuevos insumos
     for (const insumo of insumos) {
       await client.query(
         `INSERT INTO tb_detproducc (tb_idproducc, producto_id, cantidad)
@@ -324,13 +297,11 @@ export const updateProduccion = async (req, res) => {
         [id, insumo.producto_id, insumo.cantidad]
       );
 
-      // Descontar stock insumo
       await client.query(
         `UPDATE tb_stock SET cantidad = cantidad - $1 WHERE producto_id = $2`,
         [insumo.cantidad, insumo.producto_id]
       );
 
-      // Movimiento insumo
       await client.query(
         `INSERT INTO tb_movstock (producto_id, tipo, modulo, cantidad, referencia_id, fecha)
          VALUES ($1,'SALIDA','PRODUCCION',$2,$3,NOW())`,
@@ -338,7 +309,7 @@ export const updateProduccion = async (req, res) => {
       );
     }
 
-    // Sumar nueva cosecha
+    // Nueva cosecha
     await client.query(
       `INSERT INTO tb_stock (producto_id, cantidad)
        VALUES ($1,$2)
@@ -353,20 +324,17 @@ export const updateProduccion = async (req, res) => {
       [tb_idprodut, tb_canoscoh, id]
     );
 
-    // Actualizar producción
-    const updatedProduccion = await client.query(
+    await client.query(
       `UPDATE tb_producc
        SET tb_idprodut=$1, tb_fechsiem=$2, tb_fechcose=$3,
            tb_canespel=$4, tb_canoscoh=$5, tb_areacult=$6,
            tb_costprod=$7, tb_idrespon=$8
-       WHERE tb_idproduc=$9
-       RETURNING *`,
+       WHERE tb_idproduc=$9`,
       [tb_idprodut, tb_fechsiem, tb_fechcose, tb_canespel, tb_canoscoh, tb_areacult, tb_costprod, tb_idrespon, id]
     );
 
     await client.query("COMMIT");
-
-    res.json({ message: "Producción actualizada correctamente", updated: updatedProduccion.rows[0] });
+    res.json({ message: "Producción actualizada correctamente" });
 
   } catch (error) {
     await client.query("ROLLBACK");
