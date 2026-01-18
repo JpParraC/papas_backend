@@ -21,6 +21,7 @@ import personalRoutes from './routes/personal.router.js'
 import cargosRoutes from './routes/cargos.router.js'
 import produccRoutes from './routes/producc.routes.js'
 import reportesRoutes from './routes/reportes.routes.js'
+import dashboardRoutes from './routes/dashboard.routes.js'
 
 dotenv.config()
 const app = express()
@@ -52,6 +53,7 @@ app.use('/api/personal', personalRoutes)
 app.use('/api/cargos', cargosRoutes)
 app.use('/api/producc', produccRoutes)
 app.use('/api/reportes', reportesRoutes)
+app.use('/api/dashboard', dashboardRoutes)
 
 // ======================
 // HEALTH CHECK
